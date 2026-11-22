@@ -13,6 +13,7 @@ pub enum Processor {
         endpoint: String,
         deployment: String,
         api_key: String,
+        api_version: String,
     },
     Ollama {
         client: reqwest::Client,
@@ -75,8 +76,13 @@ impl Processor {
                     anyhow::bail!("Invalid AZURE_OPENAI_DEPLOYMENT");
                 }
                 let api_key = std::env::var("AZURE_OPENAI_API_KEY")?;
-                let client = reqwest::Client::builder().timeout(Duration::from_secs(30)).build()?;
-                Ok(Self::Azure {client, endpoint, deployment, api_key})
+                let api_version = std::env::var("AZURE_OPENAI_API_VERSION").ok()
+                    .map(|v| v.trim().to_owned()).filter(|v| !v.is_empty()).unwrap_or_else(|| "2024-10-21".into());
+                if !api_version.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-') {
+                    anyhow::bail!("Invalid AZURE_OPENAI_API_VERSION");
+                }
+                let client = reqwest::Client::builder().timeout(Duration::from_secs(60)).build()?;
+                Ok(Self::Azure {client, endpoint, deployment, api_key, api_version})
             }
             "ollama" => {
                 let base_url = std::env::var("OLLAMA_BASE_URL")
@@ -107,8 +113,8 @@ impl Processor {
     pub async fn analyze(&self, text: &str) -> Result<Analysis, ApiError> {
         let analysis = match self {
             Self::Rules => rules_analysis(text),
-            Self::Azure {client, endpoint, deployment, api_key} => {
-                let url = format!("{}/openai/deployments/{}/chat/completions?api-version=2024-10-21", endpoint.trim_end_matches('/'), deployment);
+            Self::Azure {client, endpoint, deployment, api_key, api_version} => {
+                let url = format!("{}/openai/deployments/{}/chat/completions?api-version={}", endpoint.trim_end_matches('/'), deployment, api_version);
                 let body = json!({
                     "messages": [
                         {"role":"system","content": EXTRACT_PROMPT},
@@ -159,14 +165,21 @@ pub fn rules_analysis(text: &str) -> Analysis {
     for original in text.lines() {
         let line = original.trim();
         if line.is_empty() { continue; }
-        let cleaned = line.trim_start_matches('#').trim().to_ascii_lowercase();
-        section = match cleaned.as_str() {
-            "achievements" | "accomplishments" | "key achievements" => {Some(Section::Achievements)},
-            "goals" | "future goals" => {Some(Section::Goals)},
-            "improvements" | "development areas" | "areas for improvement" => {Some(Section::Improvements)},
-            _ => section,
+        let cleaned = line.trim_start_matches('#').trim().trim_end_matches(':').trim().to_ascii_lowercase();
+        let known = match cleaned.as_str() {
+            "achievements" | "accomplishments" | "key achievements" => Some(Section::Achievements),
+            "goals" | "future goals" => Some(Section::Goals),
+            "improvements" | "development areas" | "areas for improvement" => Some(Section::Improvements),
+            _ => None,
         };
-        if ["achievements", "accomplishments", "key achievements", "goals", "future goals", "improvements", "development areas", "areas for improvement"].contains(&cleaned.as_str()) { continue; }
+        if known.is_some() { section = known; continue; }
+        // Any other "Question:" heading (e.g. from a Teams form) starts an unrelated block,
+        // so its answer must not be filed under the previous section.
+        let is_bullet = line.starts_with(['-', '*', '•']);
+        if !is_bullet && line.ends_with(':') && line.chars().count() <= 120 {
+            section = None;
+            continue;
+        }
         let lower = line.to_ascii_lowercase();
         let (target, content) = if let Some(v) = lower.strip_prefix("achievement:") {
             (Some(Section::Achievements), &line[line.len()-v.len()..])
@@ -199,6 +212,16 @@ mod tests {
         let out = rules_analysis(src);
         assert_eq!(out.achievements.len(), 1);
         assert_eq!(out.goals.len(), 1);
+        assert!(validate_analysis(&out, src).is_ok());
+    }
+    #[test]
+    fn form_headings_with_colons_and_unrelated_questions() {
+        let src = "Achievements:\nLaunched the mobile app.\n\nGoals:\nGet AWS certified.\n\nAdditional comments:\nThanks to my team.";
+        let out = rules_analysis(src);
+        assert_eq!(out.achievements.len(), 1);
+        assert_eq!(out.goals.len(), 1);
+        assert!(out.improvements.is_empty());
+        assert!(out.goals.iter().all(|g| !g.text.contains("Thanks")));
         assert!(validate_analysis(&out, src).is_ok());
     }
     #[test]

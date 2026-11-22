@@ -1,0 +1,14 @@
+{
+  "form_id": "annual-self-review-2026",
+  "response_id": "example-response-0001",
+  "responder": "alex.chen@example.com",
+  "answers": {
+    "Employee ID": "EMP-002",
+    "Manager email": "dana.lee@example.com",
+    "Review period": "2026",
+    "What were your key achievements this year?": "Launched the customer self-service portal two weeks early.\nReduced support tickets by 30% after the launch.",
+    "What are your goals for next year?": "Lead the accessibility audit for the web app.",
+    "Which areas do you want to develop?": "Delegating work to newer team members.",
+    "Anything else you would like your manager to know?": "I would like to attend one industry conference."
+  }
+}

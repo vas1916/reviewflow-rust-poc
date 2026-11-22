@@ -7,6 +7,17 @@ echo   ReviewFlow - Local Performance Review POC
 echo ============================================
 echo.
 
+rem Mode: pass env, local-ai or docker as an argument, or pick from the menu when double-clicked.
+set "RF_MODE=%~1"
+if not defined RF_MODE if not "%RF_LOCAL_AI%"=="1" if not "%RF_FORCE_DOCKER%"=="1" call :choose_mode
+if not defined RF_MODE set "RF_MODE=env"
+if /i "%RF_MODE%"=="local-ai" set "RF_LOCAL_AI=1"
+if /i "%RF_MODE%"=="docker" set "RF_FORCE_DOCKER=1"
+if /i not "%RF_MODE%"=="env" if /i not "%RF_MODE%"=="local-ai" if /i not "%RF_MODE%"=="docker" (
+  echo ERROR: Unknown option "%RF_MODE%". Use: Run-ReviewFlow.cmd [env ^| local-ai ^| docker]
+  goto error
+)
+
 where powershell.exe >nul 2>nul
 if errorlevel 1 (
   echo ERROR: Windows PowerShell is required for local configuration.
@@ -37,6 +48,7 @@ set "OLLAMA_BASE_URL="
 set "AZURE_OPENAI_ENDPOINT="
 set "AZURE_OPENAI_DEPLOYMENT="
 set "AZURE_OPENAI_API_KEY="
+for %%K in (INTAKE_API_TOKEN AGENT_ENABLED AGENT_POLL_SECONDS AGENT_MAX_ATTEMPTS AGENT_AUTO_DELIVER TEAMS_WEBHOOK_URL PUBLIC_BASE_URL FORMS_DEFAULT_TEMPLATE FORMS_DEFAULT_PERIOD AUTH_MODE ENTRA_REVIEWER_ROLE ENTRA_HR_ROLE WORKDAY_MODE WORKDAY_ENDPOINT WORKDAY_USERNAME WORKDAY_PASSWORD WORKDAY_REQUEST_TEMPLATE WORKDAY_RECEIPT_ELEMENT WORKDAY_TIMEOUT_SECONDS AZURE_OPENAI_API_VERSION SQLITE_JOURNAL_MODE) do set "%%K="
 for /f "usebackq eol=# tokens=1,* delims==" %%A in (".env") do (
   if /i "%%A"=="EMPLOYEE_API_TOKEN" set "EMPLOYEE_API_TOKEN=%%B"
   if /i "%%A"=="REVIEWER_API_TOKEN" set "REVIEWER_API_TOKEN=%%B"
@@ -48,6 +60,10 @@ for /f "usebackq eol=# tokens=1,* delims==" %%A in (".env") do (
   if /i "%%A"=="AZURE_OPENAI_ENDPOINT" set "AZURE_OPENAI_ENDPOINT=%%B"
   if /i "%%A"=="AZURE_OPENAI_DEPLOYMENT" set "AZURE_OPENAI_DEPLOYMENT=%%B"
   if /i "%%A"=="AZURE_OPENAI_API_KEY" set "AZURE_OPENAI_API_KEY=%%B"
+  rem Teams intake, review agent and notification settings.
+  for %%K in (INTAKE_API_TOKEN AGENT_ENABLED AGENT_POLL_SECONDS AGENT_MAX_ATTEMPTS AGENT_AUTO_DELIVER TEAMS_WEBHOOK_URL PUBLIC_BASE_URL FORMS_DEFAULT_TEMPLATE FORMS_DEFAULT_PERIOD AUTH_MODE ENTRA_REVIEWER_ROLE ENTRA_HR_ROLE WORKDAY_MODE WORKDAY_ENDPOINT WORKDAY_USERNAME WORKDAY_PASSWORD WORKDAY_REQUEST_TEMPLATE WORKDAY_RECEIPT_ELEMENT WORKDAY_TIMEOUT_SECONDS AZURE_OPENAI_API_VERSION SQLITE_JOURNAL_MODE) do (
+    if /i "%%A"=="%%K" set "%%K=%%B"
+  )
 )
 if not defined EMPLOYEE_API_TOKEN goto env_error
 if not defined REVIEWER_API_TOKEN goto env_error
@@ -66,7 +82,7 @@ if /i "%AI_MODE%"=="ollama" (
 )
 
 rem Check for a running local ReviewFlow instance.
-powershell.exe -NoProfile -Command "try { $x=Invoke-RestMethod -Uri '%URL%/healthz' -TimeoutSec 2; if ($x.status -eq 'ok' -and $x.workday -eq 'staging-only') { if ($x.ai_mode -eq $env:AI_MODE) {exit 0} else {exit 2} } } catch { }; exit 1" >nul 2>nul
+powershell.exe -NoProfile -Command "try { $x=Invoke-RestMethod -Uri '%URL%/healthz' -TimeoutSec 2; if ($x.status -eq 'ok' -and $x.workday) { if ($x.ai_mode -eq $env:AI_MODE) {exit 0} else {exit 2} } } catch { }; exit 1" >nul 2>nul
 if errorlevel 2 goto restart_required
 if not errorlevel 1 goto browser
 
@@ -208,7 +224,7 @@ echo   5. Install, then double-click this launcher again.
 echo.
 echo Full Visual Studio is NOT required; VS Code alone is insufficient.
 echo Alternative: Install/start Docker Desktop in Linux-container mode,
-echo then run Run-ReviewFlow-Docker.bat (non-AI mode).
+echo then run this launcher again and choose 3 - Docker.
 if /i "%AI_MODE%"=="ollama" (
   echo NOTE: For Ollama mode, native Rust + MSVC is recommended.
   echo Docker requires additional host-to-container Ollama configuration.
@@ -238,7 +254,7 @@ docker build -t reviewflow-poc:local .
 if errorlevel 1 goto error
 docker container inspect reviewflow-poc-local >nul 2>nul
 if errorlevel 1 (
-  docker run -d --rm --name reviewflow-poc-local -p 127.0.0.1:%PORT%:8080 -v reviewflow-poc-data:/data --env-file .env -e SQLITE_PATH=/data/reviewflow.db -e BIND_ADDR=0.0.0.0:8080 -e OLLAMA_BASE_URL=%OLLAMA_BASE_URL% reviewflow-poc:local
+  docker run -d --rm --name reviewflow-poc-local -p 127.0.0.1:%PORT%:8080 -v reviewflow-poc-data:/data --env-file .env -e SQLITE_PATH=/data/reviewflow.db -e BIND_ADDR=0.0.0.0:8080 -e OLLAMA_BASE_URL=%OLLAMA_BASE_URL% -e WORKDAY_REQUEST_TEMPLATE=/app/workday/request-template.xml reviewflow-poc:local
 ) else (
   docker start reviewflow-poc-local
 )
@@ -248,7 +264,7 @@ goto wait
 
 :wait
 echo [ReviewFlow] Checking server readiness...
-powershell.exe -NoProfile -Command "$ready=$false; for ($i=0; $i -lt 90; $i++) { try { $x=Invoke-RestMethod -Uri '%URL%/healthz' -TimeoutSec 2; if ($x.status -eq 'ok' -and $x.workday -eq 'staging-only') { $ready=$true; break } } catch { }; Start-Sleep -Milliseconds 500 }; if ($ready) {exit 0} else {exit 1}"
+powershell.exe -NoProfile -Command "$ready=$false; for ($i=0; $i -lt 90; $i++) { try { $x=Invoke-RestMethod -Uri '%URL%/healthz' -TimeoutSec 2; if ($x.status -eq 'ok' -and $x.workday) { $ready=$true; break } } catch { }; Start-Sleep -Milliseconds 500 }; if ($ready) {exit 0} else {exit 1}"
 if errorlevel 1 (
   echo ERROR: Server did not become ready. Check the server terminal or Docker logs.
   goto error
@@ -257,10 +273,32 @@ if errorlevel 1 (
 start "" "%URL%"
 echo.
 echo [ReviewFlow] Running at %URL%
-echo Copy REVIEWER_API_TOKEN from .env into the web UI.
-echo DEMO ONLY: Workday integration is simulated. Do not use actual employee data.
+if /i "%AUTH_MODE%"=="entra" (
+  echo Note: AUTH_MODE=entra needs Azure sign-in in front of the app. For local use set AUTH_MODE=token.
+) else (
+  echo Sign in with REVIEWER_API_TOKEN from the .env file.
+)
+if /i "%WORKDAY_MODE%"=="soap" (
+  echo Workday: LIVE. Approved reviews are sent to WORKDAY_ENDPOINT.
+) else (
+  echo Workday: simulated. Use made-up reviews only.
+)
 echo.
 pause
+exit /b 0
+
+:choose_mode
+echo How do you want to run ReviewFlow?
+echo   1. Use the settings in .env - default
+echo   2. Local AI with Ollama - switches .env to AI_MODE=ollama
+echo   3. Docker - no Rust or C++ build tools needed
+echo.
+choice /c 123 /n /t 20 /d 1 /m "Press 1, 2 or 3. Option 1 starts in 20 seconds: "
+rem Read the choice before any SET: in .cmd files SET resets ERRORLEVEL.
+if errorlevel 3 (set "RF_MODE=docker" & echo. & exit /b 0)
+if errorlevel 2 (set "RF_MODE=local-ai" & echo. & exit /b 0)
+set "RF_MODE=env"
+echo.
 exit /b 0
 
 :ollama_setup
