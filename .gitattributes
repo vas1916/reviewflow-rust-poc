@@ -1,0 +1,6 @@
+# Keep launcher line endings correct on every checkout, whatever the local git settings.
+# Windows batch files misbehave (broken labels/goto) with LF; shell scripts fail with CRLF.
+*.cmd     text eol=crlf
+*.ps1     text eol=crlf
+*.sh      text eol=lf
+*.command text eol=lf

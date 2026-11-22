@@ -1,0 +1,40 @@
+<!--
+  Workday SOAP request body for delivering one approved self-review.
+
+  WHO FILLS THIS IN: your Workday integration team.
+  HOW:
+    1. Copy this file to workday/request-template.xml.
+    2. Generate the request for your tenant's operation (for example Put Employee Reviews or
+       Import Employee Reviews, whichever your review business process supports) from the
+       tenant's WSDL in Workday's API Explorer or SoapUI.
+    3. Paste that request's <bsvc:...Request> element below in place of the example element,
+       and put the placeholders where the values belong.
+    4. Set WORKDAY_RECEIPT_ELEMENT to the response element that holds the created review's
+       reference (default: ID).
+    5. Run `reviewflow --check-config`, then test against your sandbox (Implementation) tenant.
+
+  ReviewFlow adds the SOAP envelope and WS-Security header itself. Put only the Body content here.
+  The server refuses to start in WORKDAY_MODE=soap while the marker element below is present.
+
+  PLACEHOLDERS (all values are XML-escaped automatically)
+    {{employee_id}}        Employee ID from the form (map it to the Workday worker ID)
+    {{review_period}}      e.g. 2026
+    {{template_id}}        Workday review template reference
+    {{source_review_id}}   ReviewFlow's review ID, useful as an external reference for de-duplication
+    {{overall_comments}}   The approved summary
+    {{accomplishments_joined}} / {{goals_joined}} / {{development_areas_joined}}
+                           All approved points of that section, one per line
+    {{#goals}} ... {{item}} ... {{/goals}}
+                           Repeats the block once per approved point (also for accomplishments
+                           and development_areas). Use it when each point is a separate element.
+-->
+<REPLACE_WITH_TENANT_REQUEST xmlns:bsvc="urn:com.workday/bsvc">
+  <EmployeeId>{{employee_id}}</EmployeeId>
+  <ReviewPeriod>{{review_period}}</ReviewPeriod>
+  <ReviewTemplate>{{template_id}}</ReviewTemplate>
+  <ExternalReference>{{source_review_id}}</ExternalReference>
+  <Accomplishments>{{accomplishments_joined}}</Accomplishments>
+  {{#goals}}<Goal>{{item}}</Goal>{{/goals}}
+  <DevelopmentAreas>{{development_areas_joined}}</DevelopmentAreas>
+  <OverallComments>{{overall_comments}}</OverallComments>
+</REPLACE_WITH_TENANT_REQUEST>
