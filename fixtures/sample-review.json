@@ -1,0 +1,8 @@
+{
+  "employee_id": "EMP-001",
+  "review_period": "2026",
+  "template_id": "ANNUAL_REVIEW_DEMO",
+  "source_system": "form",
+  "source_id": "example-EMP001-2026-v1",
+  "raw_text": "Achievements\n- Reduced service response latency by 25%.\n- Mentored two engineers during onboarding.\nGoals\n- Improve observability and incident response.\nImprovements\n- Develop stronger technical documentation habits."
+}
